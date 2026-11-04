@@ -1,6 +1,5 @@
-
-import streamlit as st
 import requests
+import streamlit as st
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -11,7 +10,9 @@ st.set_page_config(
 )
 
 st.title("🚚 LogiAI — Prédiction des retards")
-st.write("Renseignez les informations de la livraison pour estimer son risque de retard.")
+st.write(
+    "Renseignez les informations de la livraison pour estimer son risque de retard."
+)
 
 with st.form("livraison_form"):
     col1, col2 = st.columns(2)
@@ -26,9 +27,7 @@ with st.form("livraison_form"):
         heure_depart = st.number_input(
             "Heure de départ", min_value=0, max_value=23, value=8, step=1
         )
-        type_vehicule = st.selectbox(
-            "Type de véhicule", ["moto", "fourgon", "camion"]
-        )
+        type_vehicule = st.selectbox("Type de véhicule", ["moto", "fourgon", "camion"])
 
     with col2:
         pluie_mm = st.number_input(
