@@ -1,175 +1,109 @@
-# Compte rendu : TP API LogiAI
+# Compte rendu : tester, sécuriser et appeler l'API LogiAI
 
-Nom : Ziad SERRAY  
-Groupe :g3
+**Noms :** Ziad Serray  
+**Groupe :** G3
 
-## 1. Environnement et premiers tests
+## 1. Casser son API (activité 1)
 
-**Environnement utilisé :**
-- Système : Windows
-- Python : 3.10.10
-- Framework API : FastAPI
-- Validation : Pydantic
-- Tests : Pytest
-- Versionnement : Git et GitHub
+| Cas | Requête (corps ou URL) | Prévu | Obtenu |
+|---|---|---:|---:|
+| Champ manquant | `poids_kg` absent | 422 | 422 |
+| Valeur absurde | `poids_kg = 99999` | 422 | 422 |
+| Texte au lieu d'un nombre | `distance_km = "cent vingt"` | 422 | 422 |
+| Champ en trop | Ajout du champ `ville` | 422 | 422 |
+| Mauvaise route | `/v1/route-inconnue` | 404 | 404 |
 
-**Sortie de `python -m pytest` au départ :**
+- Une requête acceptée alors qu'elle devait être refusée ? Aucune parmi les cinq requêtes testées.
 
-Lors du premier lancement, 12 tests ont réussi et 1 test a échoué :
+## 2. Les 2 bugs (activité 2)
 
-```text
-collected 13 items
+| Bug | Test qui l'a révélé | Comportement avant | Correction |
+|---|---|---|---|
+| 1 | `heure_depart = 24` | Requête acceptée (HTTP 200) | Remplacement de `le=24` par `le=23` |
+| 2 | `nb_arrets = -1` | Requête acceptée (HTTP 200) | Ajout de `ge=0` |
 
-tests\test_api.py .......F.....
+- Sortie de `python -m pytest` à la fin de l'activité 2 :
 
-FAILED tests/test_api.py::test_pluie_impossible_refusee
-assert 200 == 422
+`50 passed, 1 warning in 3.17s`
 
-1 failed, 12 passed
-```
+## 3. La clé API (sprint 1)
 
-Le test échouait parce que la valeur `pluie_mm = 500` était acceptée par le schéma initial.
-
-**Pourquoi certains tests qui attendent un 422 passent-ils déjà, alors que rien n'est écrit ?**
-
-FastAPI utilise automatiquement les schémas Pydantic pour valider les données reçues. Les champs obligatoires, les types, les valeurs autorisées par `Literal` et les contraintes définies avec `Field` sont contrôlés avant l'exécution de la fonction `predict()`.
-
-Lorsqu'une donnée ne respecte pas le schéma, FastAPI renvoie automatiquement une erreur HTTP 422. Il n'est donc pas nécessaire d'écrire manuellement chaque vérification dans la fonction de prédiction.
-
-## 2. Mon schéma
-
-Les bornes suivantes correspondent au schéma actuellement implémenté dans `logiai/api/schemas.py`.
-
-| Variable | Min | Max | Pourquoi |
-|---|---:|---:|---|
-| `distance_km` | 1 | 1 000 | Une livraison doit avoir une distance positive et une distance supérieure à 1 000 km est hors de la plage prévue pour ce projet. |
-| `poids_kg` | 0,1 | 40 000 | Le poids doit être positif et 40 000 kg représente une limite maximale choisie pour le transport de marchandises. |
-| `heure_depart` | 0 | 23 | Une heure est représentée par un entier compris entre 0 et 23. |
-| `pluie_mm` | 0 | strictement inférieur à 500 | Les précipitations ne peuvent pas être négatives. La limite supérieure permet de rejeter des valeurs extrêmes. |
-| `trafic_index` | 0 | 10 | L'indice de trafic est défini sur une échelle de 0 à 10. |
-| `nb_arrets` | 0 | 100 | Le nombre d'arrêts est un entier positif, limité à 100 pour ce scénario. |
-
-Le type `type_vehicule` accepte uniquement les valeurs `moto`, `fourgon` et `camion`. Le paramètre `extra="forbid"` interdit également les champs supplémentaires.
-
-**Remarque :** la question de l'énoncé mentionne un contrôle `pluie <= 100`. Dans mon code actuel, la contrainte est `pluie_mm < 500`, afin de satisfaire le test qui exige le rejet de `pluie_mm = 500`. Si la borne demandée par l'enseignant est réellement 100 mm, elle doit être adaptée à `Field(ge=0, le=100)` et les tests doivent être relancés.
-
-## 3. Ma fonction `predict()`
-
-Le code implémenté dans `logiai/api/main.py` est le suivant :
+- Ma fonction `verify_api_key()` :
 
 ```python
-@app.post("/v1/predict", response_model=PredictionOut)
-def predict(livraison: Livraison):
-    predictor = state.get("predictor")
-
-    if predictor is None:
+def verify_api_key(x_api_key: str | None = Header(default=None)) -> str:
+    if not x_api_key:
         raise HTTPException(
-            status_code=503,
-            detail="Le modèle de prédiction n'est pas chargé."
+            status_code=401,
+            detail="Clé API manquante",
+            headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    resultat = predictor.predict(livraison.model_dump())
+    if _egal(x_api_key, config.ADMIN_KEY):
+        return "admin"
 
-    return PredictionOut(**resultat)
+    if _egal(x_api_key, config.API_KEY):
+        return "user"
+
+    raise HTTPException(
+        status_code=401,
+        detail="Clé API invalide",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
 ```
 
-La fonction récupère le modèle déjà chargé au démarrage. Si le modèle est absent, elle renvoie une erreur 503. Sinon, elle transmet les caractéristiques de la livraison au prédicteur et retourne une réponse validée par `PredictionOut`.
+| Requête | Code obtenu |
+|---|---:|
+| `/v1/predict` sans clé | 401 |
+| `/v1/predict` fausse clé | 401 |
+| `/v1/predict` clé utilisateur | 200 |
+| `/v1/model-info` clé utilisateur | 403 |
+| `/v1/model-info` clé administrateur | 200 |
+| `/health` sans clé | 200 |
 
-La validation des entrées est effectuée automatiquement par FastAPI et Pydantic avant l'appel de cette fonction.
+- Preuve que `.env` n'est pas dans Git : le fichier `.env` est ignoré par Git et ne doit pas apparaître dans les fichiers suivis.
 
-## 4. Quatre requêtes
+## 4. Le client web (sprint 2)
 
-| Requête | Code HTTP obtenu | Pourquoi |
-|---|---:|---|
-| Livraison normale | 200 | Les données sont valides et le modèle peut effectuer la prédiction. |
-| `distance_km = -5` | 422 | La distance doit être supérieure ou égale à 1 km. |
-| `type_vehicule = "avion"` | 422 | Le type de véhicule n'appartient pas aux valeurs autorisées. |
-| Modèle absent | 503 | L'API fonctionne, mais le modèle nécessaire à la prédiction n'est pas chargé. |
+- Mon `fetch` : coller ici le code réel présent dans `web/index.html`.
 
-Pour la livraison normale, un exemple testé a renvoyé :
+- Ce qui s'affiche :
+  - Livraison normale : l'API retourne une prédiction.
+  - Pluie de 500 mm : la validation de l'API refuse la requête si cette valeur dépasse la limite autorisée (HTTP 422).
+  - Fausse clé : l'API refuse la requête (HTTP 401).
 
-```json
-{
-  "probabilite_retard": 0.9028,
-  "alerte": true,
-  "seuil": 0.4,
-  "model_version": "1.0"
-}
-```
+- Expérience CORS (page servie sur le port 5501) : le navigateur bloque l'appel si l'origine `http://localhost:5501` n'est pas autorisée dans la configuration CORS de l'API.
 
-La probabilité estimée est de 90,28 %. Elle dépasse le seuil de 40 %, donc une alerte est déclenchée.
+`curl` fonctionne quand même car CORS est une restriction appliquée par les navigateurs, pas une interdiction générale des requêtes HTTP.
 
-Pour le test du modèle absent, le code vérifie que le modèle est disponible au démarrage. Si le fichier du modèle est absent, l'application démarre sans le prédicteur et la requête de prédiction renvoie 503. Ce comportement est distinct d'une erreur de validation des données.
+- Où voyez-vous la clé dans F12 ?
+
+Dans l'onglet Network, en ouvrant la requête API puis Request Headers, dans l'en-tête `X-API-Key`.
 
 ## 5. Questions de compréhension
 
-### 1. Pourquoi charge-t-on le modèle au démarrage et pas à chaque requête ?
+**1. Quelle différence entre 401, 403 et 422 ?**
 
-Le chargement au démarrage évite de relire et de recharger le modèle pour chaque demande. Cela réduit le temps de réponse et les opérations inutiles. Le modèle reste disponible en mémoire pour traiter plusieurs requêtes.
+- 401 : clé API absente ou invalide.
+- 403 : utilisateur authentifié, mais non autorisé à accéder à la ressource.
+- 422 : données envoyées non conformes aux règles de validation.
 
-### 2. Qui écrit le contrôle « pluie <= 100 », et où est-il écrit ?
+**2. Pourquoi la clé n'est-elle ni dans le code ni dans Git ?**
 
-Le contrôle est défini par le développeur dans le schéma Pydantic, dans `logiai/api/schemas.py`, à l'aide de `Field`.
+Pour protéger les informations sensibles et empêcher leur exposition. Les clés sont stockées dans `.env`, un fichier ignoré par Git.
 
-Dans mon implémentation actuelle, la contrainte est `ge=0, lt=500`, et non `le=100`. Si l'exigence du TP est une limite maximale de 100 mm, il faut écrire :
+**3. Pourquoi comparer avec `compare_digest` plutôt qu'avec `==` ?**
 
-```python
-pluie_mm: float = Field(
-    ge=0,
-    le=100,
-    description="Précipitations (mm)"
-)
-```
+`compare_digest` effectue une comparaison en temps constant, ce qui limite les risques d'attaques par analyse du temps de comparaison.
 
-FastAPI applique ensuite automatiquement cette contrainte aux requêtes entrantes.
+**4. Pourquoi `curl` fonctionne-t-il alors que la page du port 5501 est bloquée ?**
 
-### 3. Différence entre 422 et 503 ?
+Parce que CORS est appliqué par les navigateurs. `curl` n'applique pas cette restriction.
 
-- **422 Unprocessable Entity :** les données reçues ne respectent pas le schéma de validation, par exemple une distance négative ou un véhicule inconnu.
-- **503 Service Unavailable :** le service de prédiction ne peut pas traiter la demande parce que le modèle n'est pas disponible.
+**5. Pourquoi la validation faite par le navigateur ne remplace-t-elle pas celle de l'API ?**
 
-Le code 422 concerne donc les données envoyées, tandis que le code 503 concerne la disponibilité du composant nécessaire au traitement.
+Parce qu'un utilisateur peut contourner la validation du navigateur et envoyer directement une requête HTTP. L'API doit donc vérifier elle-même les données reçues.
 
-### 4. Pourquoi une route `/v1/predict` plutôt que `/predict` ?
+## 6. Lien de la pull request
 
-Le préfixe `/v1` indique la version 1 de l'API. Il permet de faire évoluer l'API ultérieurement, par exemple avec `/v2/predict`, tout en conservant une version précédente pour les clients qui en dépendent.
-
-### 5. Que se passerait-il si la distance était déclarée `int` ?
-
-Le schéma attendrait un nombre entier plutôt qu'une distance décimale. Les valeurs comme `12.5` km ne seraient plus acceptées telles quelles par la validation stricte habituelle d'un champ entier. Utiliser `float` est donc plus adapté, car une distance peut être exprimée avec des décimales.
-
-## 6. Décision : modèle absent
-
-Deux stratégies sont possibles.
-
-**Option 1 : renvoyer une erreur 503.**
-
-L'application démarre même si le modèle est absent. Les routes de contrôle restent disponibles, notamment `/health`, mais les prédictions sont refusées tant que le modèle n'est pas chargé.
-
-Cette solution permet de conserver une partie des fonctionnalités de l'API et de renvoyer une erreur explicite aux clients. En revanche, le service de prédiction n'est pas opérationnel.
-
-**Option 2 : refuser de démarrer.**
-
-L'application vérifie la présence du modèle et arrête son démarrage si celui-ci est absent.
-
-Cette approche évite de démarrer un service incapable de répondre aux demandes de prédiction. Cependant, même la route de contrôle de santé devient indisponible et les autres fonctionnalités de l'application ne peuvent plus être utilisées.
-
-**Décision retenue :** dans ce projet, le modèle est chargé au démarrage s'il existe. En son absence, l'application peut démarrer, mais `/v1/predict` renvoie 503. Cette stratégie permet de distinguer la disponibilité de l'API de celle du modèle.
-
-## 7. Lien de la pull request
-
-**Dépôt GitHub :**
-
-https://github.com/ziadserray04/LogiAI
-
-**Branche :** `tp-api`
-
-**Dernier commit de correction :** `4253bfb` — `Fix rainfall validation`
-
-**Lien pour créer la pull request :**
-
-https://github.com/ziadserray04/LogiAI/pull/new/tp-api
-
-La branche `tp-api` a été poussée sur GitHub et la commande `git status` a confirmé que la branche locale était synchronisée avec la branche distante.
-
-Le projet a finalement obtenu **13 tests réussis sur 13** après la correction de la validation des précipitations.
+https://github.com/ziadserray04/LogiAI/pull/1
