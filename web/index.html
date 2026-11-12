@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogiAI - Prédiction des retards</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #172554, #312e81, #6d28d9);
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 30px 15px;
+        }
+
+        main {
+            width: 100%;
+            max-width: 650px;
+            background: rgba(255, 255, 255, 0.10);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 18px;
+            padding: 30px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #ddd6fe;
+            margin-bottom: 30px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 7px;
+            font-size: 14px;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 25px;
+            padding: 14px;
+            border: none;
+            border-radius: 9px;
+            background: #a78bfa;
+            color: #1e1b4b;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #c4b5fd;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        #result {
+            margin-top: 25px;
+            padding: 18px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.12);
+            display: none;
+        }
+
+        #result h2 {
+            margin-top: 0;
+        }
+
+        #message {
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .error {
+            color: #fecaca;
+        }
+
+        .success {
+            color: #bbf7d0;
+        }
+
+        @media (max-width: 500px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            main {
+                padding: 22px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<main>
+    <h1>LogiAI</h1>
+    <p class="subtitle">Système intelligent de prédiction des retards de livraison</p>
+
+    <form id="predictionForm">
+        <div class="form-grid">
+            <div>
+                <label for="distance_km">Distance (km)</label>
+                <input type="number" id="distance_km" value="12" min="0" step="0.1" required>
+            </div>
+
+            <div>
+                <label for="poids_kg">Poids (kg)</label>
+                <input type="number" id="poids_kg" value="500" min="0" step="0.1" required>
+            </div>
+
+            <div>
+                <label for="heure_depart">Heure de départ</label>
+                <input type="number" id="heure_depart" value="8" min="0" max="23" required>
+            </div>
+
+            <div>
+                <label for="pluie_mm">Pluie (mm)</label>
+                <input type="number" id="pluie_mm" value="2" min="0" step="0.1" required>
+            </div>
+
+            <div>
+                <label for="trafic_index">Indice de trafic</label>
+                <input type="number" id="trafic_index" value="0.7" min="0" max="1" step="0.01" required>
+            </div>
+
+            <div>
+                <label for="nb_arrets">Nombre d'arrêts</label>
+                <input type="number" id="nb_arrets" value="3" min="0" required>
+            </div>
+
+            <div>
+                <label for="type_vehicule">Type de véhicule</label>
+                <select id="type_vehicule" required>
+                    <option value="moto">Moto</option>
+                    <option value="fourgon">Fourgon</option>
+                    <option value="camion" selected>Camion</option>
+                </select>
+            </div>
+        </div>
+
+        <button type="submit" id="predictButton">
+            Prédire le retard
+        </button>
+    </form>
+
+    <section id="result">
+        <h2>Résultat de la prédiction</h2>
+        <p id="message"></p>
+    </section>
+</main>
+
+<script>
+    // Adresse de l'API via le proxy Nginx
+    const API_URL = '/api/v1/predict';
+
+    const form = document.getElementById('predictionForm');
+    const button = document.getElementById('predictButton');
+    const result = document.getElementById('result');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const apiKey = prompt("Veuillez saisir votre clé API utilisateur :");
+
+        if (!apiKey || !apiKey.trim()) {
+            alert("Une clé API est nécessaire.");
+            return;
+        }
+
+        const body = {
+            distance_km: Number(document.getElementById('distance_km').value),
+            poids_kg: Number(document.getElementById('poids_kg').value),
+            heure_depart: Number(document.getElementById('heure_depart').value),
+            pluie_mm: Number(document.getElementById('pluie_mm').value),
+            trafic_index: Number(document.getElementById('trafic_index').value),
+            nb_arrets: Number(document.getElementById('nb_arrets').value),
+            type_vehicule: document.getElementById('type_vehicule').value
+        };
+
+        button.disabled = true;
+        button.textContent = "Prédiction en cours...";
+        result.style.display = "block";
+        message.textContent = "Connexion à l'API...";
+        message.className = "";
+
+        try {
+            const response = await fetch(API_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-API-Key": apiKey.trim()
+                },
+                body: JSON.stringify(body)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Erreur lors de la prédiction.");
+            }
+
+            const probability = (data.probabilite_retard * 100).toFixed(2);
+
+            message.textContent =
+                "Probabilité de retard : " + probability + "%\n" +
+                "Alerte : " + (data.alerte ? "Oui" : "Non") + "\n" +
+                "Seuil : " + data.seuil + "\n" +
+                "Version du modèle : " + data.model_version;
+
+            message.className = data.alerte ? "error" : "success";
+
+        } catch (error) {
+            message.textContent = "Erreur : " + error.message;
+            message.className = "error";
+        } finally {
+            button.disabled = false;
+            button.textContent = "Prédire le retard";
+        }
+    });
+</script>
+</body>
+</html>
